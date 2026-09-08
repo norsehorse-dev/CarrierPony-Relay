@@ -1,0 +1,7 @@
+config.php
+config.php.bak
+*.bak
+*.bak.*
+.env
+.git
+.gitignore

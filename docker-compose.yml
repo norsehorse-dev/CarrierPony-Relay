@@ -1,0 +1,49 @@
+services:
+  db:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-carrierpony}
+      MYSQL_USER: ${MYSQL_USER:-carrierpony}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./schema.sql:/docker-entrypoint-initdb.d/00_schema.sql:ro
+      - ./migrations/002_pairing.sql:/docker-entrypoint-initdb.d/02_pairing.sql:ro
+      - ./migrations/003_push_platform.sql:/docker-entrypoint-initdb.d/03_push_platform.sql:ro
+      - ./migrations/004_apns_env.sql:/docker-entrypoint-initdb.d/04_apns_env.sql:ro
+    restart: unless-stopped
+
+  app:
+    build: .
+    environment:
+      DB_HOST: db
+      DB_NAME: ${MYSQL_DATABASE:-carrierpony}
+      DB_USER: ${MYSQL_USER:-carrierpony}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - gnupg:/var/lib/carrierpony/gnupg
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  gnupg:
+  caddy_data:
+  caddy_config:
