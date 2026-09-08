@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 #
 # CarrierPony relay installer for a fresh Ubuntu/Debian server with Apache,
-# MySQL and PHP. It installs dependencies, creates the database, loads the
-# schema and migrations, prepares the gnupg home, writes config.php, and sets
-# up an Apache virtual host with a Let's Encrypt certificate.
+# MySQL and PHP. It installs the app under /opt/carrierpony (never a home
+# directory, which Apache cannot traverse), installs dependencies, creates the
+# database, loads the schema and migrations, prepares the gnupg home, writes
+# config.php, sets up an Apache virtual host, and requests a certificate.
 #
 # For a container-based install use Docker instead (see README.md). Push stays
 # off; a self-hosted relay cannot wake App Store / Play installs (see INSTALL.md).
 #
-# Run as root from the repository directory:  sudo ./install.sh
+# Safe to re-run. Run as root from the repository directory:  sudo ./install.sh
 set -euo pipefail
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -16,18 +17,12 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_DIR="/opt/carrierpony"
 
 read -rp "Relay domain (e.g. relay.example.com): " DOMAIN
-read -rp "Database name [carrierpony]: " DB_NAME
-DB_NAME="${DB_NAME:-carrierpony}"
-read -rp "Database user [carrierpony]: " DB_USER
-DB_USER="${DB_USER:-carrierpony}"
-read -rsp "Database password: " DB_PASS
-echo
-
-if [ -z "$DOMAIN" ] || [ -z "$DB_PASS" ]; then
-  echo "Domain and database password are required." >&2
+if [ -z "$DOMAIN" ]; then
+  echo "Domain is required." >&2
   exit 1
 fi
 
@@ -37,26 +32,43 @@ apt-get update
 apt-get install -y apache2 mysql-server php php-mysql php-curl libapache2-mod-php gnupg certbot python3-certbot-apache
 a2enmod rewrite
 
-echo "==> Creating database and user"
-mysql <<SQL
+echo "==> Installing the app into $APP_DIR"
+mkdir -p "$APP_DIR"
+cp -a "$APP_SRC"/. "$APP_DIR"/
+rm -rf "$APP_DIR/.git" "$APP_DIR/.env"
+
+echo "==> Preparing gnupg home"
+install -d -o www-data -g www-data -m 700 /var/lib/carrierpony/gnupg
+
+if [ ! -f "$APP_DIR/config.php" ]; then
+  read -rp "Database name [carrierpony]: " DB_NAME
+  DB_NAME="${DB_NAME:-carrierpony}"
+  read -rp "Database user [carrierpony]: " DB_USER
+  DB_USER="${DB_USER:-carrierpony}"
+  read -rsp "Database password: " DB_PASS
+  echo
+  if [ -z "$DB_PASS" ]; then
+    echo "Database password is required on a first install." >&2
+    exit 1
+  fi
+
+  echo "==> Creating database and user"
+  mysql <<SQL
 CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` CHARACTER SET utf8mb4;
 CREATE USER IF NOT EXISTS '${DB_USER}'@'127.0.0.1' IDENTIFIED BY '${DB_PASS}';
 GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'127.0.0.1';
 FLUSH PRIVILEGES;
 SQL
 
-echo "==> Loading schema and migrations"
-mysql "$DB_NAME" < "$APP_DIR/schema.sql"
-for m in "$APP_DIR"/migrations/*.sql; do
-  echo "    $(basename "$m")"
-  mysql "$DB_NAME" < "$m"
-done
+  echo "==> Loading schema and migrations"
+  mysql "$DB_NAME" < "$APP_DIR/schema.sql"
+  for m in "$APP_DIR"/migrations/*.sql; do
+    echo "    $(basename "$m")"
+    mysql "$DB_NAME" < "$m"
+  done
 
-echo "==> Preparing gnupg home"
-install -d -o www-data -g www-data -m 700 /var/lib/carrierpony/gnupg
-
-echo "==> Writing config.php"
-cat > "$APP_DIR/config.php" <<PHP
+  echo "==> Writing config.php"
+  cat > "$APP_DIR/config.php" <<PHP
 <?php
 
 return [
@@ -73,6 +85,9 @@ return [
     'max_envelope_bytes'   => 26214400,
 ];
 PHP
+else
+  echo "==> Existing config.php found in $APP_DIR, keeping the database and config"
+fi
 chown www-data:www-data "$APP_DIR/config.php"
 chmod 640 "$APP_DIR/config.php"
 
