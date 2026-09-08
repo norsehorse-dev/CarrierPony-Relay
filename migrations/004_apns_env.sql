@@ -12,6 +12,21 @@
 -- falls back to the other environment on BadDeviceToken, and writes back
 -- whichever answered 200, so the fleet resolves itself with no backfill and
 -- each device pays the extra round trip at most once.
+--
+-- Idempotent: the column is added only when it is not already present.
 
-ALTER TABLE devices
-  ADD COLUMN apns_env VARCHAR(10) NULL AFTER platform;
+SET @add_col := (
+  SELECT COUNT(*) = 0
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'devices'
+    AND COLUMN_NAME = 'apns_env'
+);
+SET @ddl := IF(
+  @add_col,
+  "ALTER TABLE devices ADD COLUMN apns_env VARCHAR(10) NULL AFTER platform",
+  "DO 0"
+);
+PREPARE stmt FROM @ddl;
+EXECUTE stmt;
+DEALLOCATE PREPARE stmt;
