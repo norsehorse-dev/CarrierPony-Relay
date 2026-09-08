@@ -13,6 +13,7 @@ $routes = [
     'POST /v1/inbox'           => 'inbox.php',
     'POST /v1/ack'             => 'ack.php',
     'POST /v1/register-push'   => 'register_push.php',
+    'POST /v1/register-wake'   => 'register_wake.php',
     'POST /v1/report'          => 'report.php',
     'POST /v1/pair/offer'      => 'pair_offer.php',
     'POST /v1/pair/accept'     => 'pair_accept.php',

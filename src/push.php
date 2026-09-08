@@ -339,6 +339,12 @@ function cp_push_notify(array $devicePks, bool $silent = false): void
         return;
     }
     $cfg = cp_config();
+
+    // Opted-in devices are woken through the push gateway. This runs even when
+    // this relay has no local APNs/FCM credentials of its own, which is the
+    // whole point for a self-hosted relay.
+    cp_gateway_wake($devicePks, $silent);
+
     $apnsEnabled = !empty($cfg['apns']['enabled']);
     $fcmEnabled = !empty($cfg['fcm']['enabled']);
     if (!$apnsEnabled && !$fcmEnabled) {
@@ -413,5 +419,54 @@ function cp_push_notify(array $devicePks, bool $silent = false): void
         $ph = implode(',', array_fill(0, count($dead), '?'));
         cp_db()->prepare("UPDATE devices SET push_token = NULL WHERE id IN ($ph)")
             ->execute($dead);
+    }
+}
+
+/**
+ * Nudge the push gateway for any of these devices that opted in (have a
+ * wake_token). The gateway receives only the opaque token and the silent flag,
+ * never a sender or content. Best-effort and non-fatal; guarded so a relay
+ * whose schema predates the wake_token column simply does nothing.
+ */
+function cp_gateway_wake(array $devicePks, bool $silent = false): void
+{
+    if (!$devicePks) {
+        return;
+    }
+    $url = cp_config()['push_gateway']['url'] ?? null;
+    if (!$url) {
+        return;
+    }
+    $endpoint = rtrim((string) $url, '/') . '/v1/wake';
+
+    try {
+        $placeholders = implode(',', array_fill(0, count($devicePks), '?'));
+        $stmt = cp_db()->prepare(
+            "SELECT wake_token FROM devices
+             WHERE id IN ($placeholders) AND wake_token IS NOT NULL AND wake_token <> ''"
+        );
+        $stmt->execute(array_map('intval', array_values($devicePks)));
+        $tokens = $stmt->fetchAll();
+    } catch (\Throwable $e) {
+        // Column not present (older schema) or DB hiccup; nothing to wake.
+        return;
+    }
+
+    foreach ($tokens as $row) {
+        $payload = json_encode(['wake_token' => (string) $row['wake_token'], 'silent' => $silent]);
+        try {
+            $ch = curl_init($endpoint);
+            curl_setopt_array($ch, [
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => $payload,
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_TIMEOUT        => 5,
+                CURLOPT_HTTPHEADER     => ['content-type: application/json'],
+            ]);
+            curl_exec($ch);
+            curl_close($ch);
+        } catch (\Throwable $e) {
+            // best-effort; a gateway hiccup must not fail message delivery
+        }
     }
 }

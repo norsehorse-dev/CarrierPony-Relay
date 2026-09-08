@@ -21,6 +21,16 @@ return [
     'message_ttl_max_days'  => 30,         // hard cap on how long a message is held
     'max_envelope_bytes'    => 26214400,   // reject envelopes larger than this
 
+    // Push gateway. A self-hosted relay cannot wake App Store / Play installs
+    // itself; a user can opt in (in the app) to be woken through the CarrierPony
+    // gateway, which holds the publisher push credentials and only ever gets a
+    // content-free nudge, never a message. Only devices that opted in and handed
+    // this relay a wake_token are ever contacted. Point url at your own gateway
+    // if you run one; set it to null to disable gateway wakes entirely.
+    'push_gateway' => [
+        'url' => 'https://push.carrierpony.com',
+    ],
+
     // Push notifications are OFF by default, and that is the right setting for
     // almost every self-hosted relay. Waking the CarrierPony app in the
     // background requires the app publisher's own APNs key (iOS) and Firebase

@@ -6,9 +6,11 @@ Self-hostable. Apache-2.0.
 
 ## Self-hosting
 
-Three ways to stand up your own relay, fastest first.
+Three ways to stand up your own relay.
 
-**Docker.** With Docker installed and a domain pointed at your server:
+**Docker (recommended).** The most portable option: it runs the same on any
+Linux with Docker (Debian, Ubuntu, Fedora, RHEL, Arch, ...) and never touches
+the host's packages. With Docker installed and a domain pointed at your server:
 
 ```
 cp .env.example .env
@@ -24,8 +26,9 @@ Caddy fetches a Let's Encrypt certificate for your domain automatically, the
 schema and migrations load on first boot, and the relay comes up at
 `https://your-domain`.
 
-**Installer.** On a fresh Ubuntu or Debian server without Docker, run from the
-repository directory:
+**Installer.** A bare-metal install for the Debian/Ubuntu family (Apache +
+MySQL or MariaDB) or the Fedora/RHEL family (httpd + MariaDB + SELinux). Run
+from the repository directory:
 
 ```
 sudo ./install.sh
