@@ -18,6 +18,11 @@ $routes = [
     'POST /v1/pair/offer'      => 'pair_offer.php',
     'POST /v1/pair/accept'     => 'pair_accept.php',
     'POST /v1/pair/status'     => 'pair_status.php',
+    'POST /v1/sealed/register-device'    => 'sealed_register_device.php',
+    'POST /v1/sealed/register-mailboxes' => 'sealed_register_mailboxes.php',
+    'POST /v1/sealed/send'               => 'sealed_send.php',
+    'POST /v1/sealed/inbox'              => 'sealed_inbox.php',
+    'POST /v1/sealed/ack'                => 'sealed_ack.php',
 ];
 
 $key = $method . ' ' . $path;

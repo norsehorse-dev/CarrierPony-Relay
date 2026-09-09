@@ -155,6 +155,16 @@ fi
 
 systemctl reload "$WEB_SVC" || systemctl restart "$WEB_SVC"
 
+echo "==> Opening the web ports if a firewall is active"
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+  ufw allow 80/tcp || true
+  ufw allow 443/tcp || true
+fi
+if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld 2>/dev/null; then
+  firewall-cmd --permanent --add-service=http --add-service=https || true
+  firewall-cmd --reload || true
+fi
+
 echo "==> Requesting a certificate"
 certbot --apache -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email --redirect || \
   echo "certbot failed; run 'certbot --apache -d $DOMAIN' by hand once DNS is pointed at this server."

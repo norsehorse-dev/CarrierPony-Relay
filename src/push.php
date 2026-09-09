@@ -433,7 +433,13 @@ function cp_gateway_wake(array $devicePks, bool $silent = false): void
     if (!$devicePks) {
         return;
     }
-    $url = cp_config()['push_gateway']['url'] ?? null;
+    // Absent push_gateway config defaults to the CarrierPony gateway, so an
+    // existing self-hosted relay picks this up with no config edit. A relay
+    // that sets push_gateway.url to null has explicitly disabled gateway wakes.
+    $cfg = cp_config();
+    $url = array_key_exists('push_gateway', $cfg)
+        ? ($cfg['push_gateway']['url'] ?? null)
+        : 'https://push.carrierpony.com';
     if (!$url) {
         return;
     }
