@@ -31,7 +31,7 @@ def build_success(transaction_id: bytes, ip: str, port: int) -> bytes:
     return header + attr
 
 
-def handle(data: bytes, addr) -> bytes | None:
+def handle(data, addr):
     # Only answer well-formed IPv4 Binding requests; anything else is ignored so the
     # responder cannot be turned into an amplifier for arbitrary traffic.
     if len(data) < 20:
