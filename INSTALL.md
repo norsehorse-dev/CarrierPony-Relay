@@ -173,3 +173,20 @@ and distributing your own CarrierPony app with your own credentials.
   timing). Run it somewhere you control.
 
 Apache-2.0.
+
+## Optional: direct WAN paths (STUN)
+
+To let your users set up direct peer-to-peer paths (UDP hole punching) instead of
+always going through store-and-forward, run the tiny STUN responder in `stun/`. It is
+optional and safe to skip; see `stun/README.md`. In short:
+
+    sudo mkdir -p /opt/carrierpony/stun
+    sudo cp stun/ponystun.py /opt/carrierpony/stun/
+    sudo cp stun/ponystun.service /etc/systemd/system/
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now ponystun
+    sudo ufw allow 3478/udp
+
+Signaling for direct paths rides the sealed relay path, so the STUN responder only
+reflects a public address back to the client; it never sees message content or who is
+talking to whom.
