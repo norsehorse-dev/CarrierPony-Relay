@@ -4,3 +4,7 @@ config.php.bak
 *.bak.*
 .env
 .DS_Store
+
+verifier/cp-verify
+verifier/cp-testkey
+verifier/dist/

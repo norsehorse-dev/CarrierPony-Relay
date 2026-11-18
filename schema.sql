@@ -1,12 +1,12 @@
 CREATE TABLE IF NOT EXISTS identities (
-  fpr         CHAR(40) NOT NULL PRIMARY KEY,
+  fpr         VARCHAR(64) NOT NULL PRIMARY KEY,
   pubkey      MEDIUMTEXT NOT NULL,
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE TABLE IF NOT EXISTS devices (
   id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-  fpr         CHAR(40) NOT NULL,
+  fpr         VARCHAR(64) NOT NULL,
   device_id   CHAR(32) NOT NULL,
   label       VARCHAR(64) NULL,
   push_token  VARCHAR(255) NULL,
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS devices (
 CREATE TABLE IF NOT EXISTS messages (
   id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
   message_id  CHAR(32) NOT NULL,
-  to_fpr      CHAR(40) NOT NULL,
+  to_fpr      VARCHAR(64) NOT NULL,
   envelope    LONGTEXT NOT NULL,
   size_bytes  INT UNSIGNED NOT NULL,
   received_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -42,7 +42,7 @@ CREATE TABLE IF NOT EXISTS deliveries (
 
 CREATE TABLE IF NOT EXISTS challenges (
   nonce       CHAR(64) NOT NULL PRIMARY KEY,
-  fpr         CHAR(40) NOT NULL,
+  fpr         VARCHAR(64) NOT NULL,
   created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   expires_at  DATETIME NOT NULL,
   KEY k_chal_expires (expires_at)

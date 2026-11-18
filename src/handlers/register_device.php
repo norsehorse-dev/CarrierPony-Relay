@@ -5,18 +5,21 @@ require_once __DIR__ . '/../auth.php';
 $in = cp_input();
 $a = cp_require($in, ['fpr', 'pubkey', 'device_id', 'nonce', 'sig']);
 $fpr = strtoupper($a['fpr']);
-if (!preg_match('/^[0-9A-F]{40}$/', $fpr)) {
+if (!cp_valid_fpr($fpr)) {
     cp_json(400, ['error' => 'bad_fpr']);
 }
 if (!preg_match('/^[0-9a-f]{32}$/', $a['device_id'])) {
     cp_json(400, ['error' => 'bad_device_id']);
+}
+if (strlen((string) $a['pubkey']) > 100000) {
+    cp_json(400, ['error' => 'bad_pubkey']);
 }
 
 cp_import_pubkey($a['pubkey']);
 if (!cp_consume_challenge($fpr, $a['nonce'])) {
     cp_json(401, ['error' => 'bad_challenge']);
 }
-if (!cp_verify_sig($fpr, $a['nonce'], $a['sig'])) {
+if (!cp_verify_sig($fpr, $a['nonce'], $a['sig'], (string) $a['pubkey'])) {
     cp_json(401, ['error' => 'bad_signature']);
 }
 
