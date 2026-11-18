@@ -13,7 +13,8 @@ if (!preg_match('/^[0-9a-f]{32}$/', $token)) {
 
 $db = cp_db();
 $sel = $db->prepare(
-    'SELECT offerer_fpr, state, responder_fpr, responder_pubkey
+    'SELECT offerer_fpr, state, responder_fpr, responder_pubkey,
+            (expires_at <= UTC_TIMESTAMP()) AS is_expired
      FROM pairing_offers WHERE token = ?'
 );
 $sel->execute([$token]);
@@ -33,4 +34,10 @@ if ($row['state'] === 'accepted') {
     ]);
 }
 
+// An accepted offer stays collectable after expires_at (the reaper keeps it for
+// pair_accepted_keep_days). An open one past expiry can never be accepted, so
+// say so instead of letting the client wait on it until the reaper's 404.
+if ($row['state'] === 'open' && (int) $row['is_expired'] === 1) {
+    cp_json(200, ['state' => 'expired']);
+}
 cp_json(200, ['state' => $row['state']]);

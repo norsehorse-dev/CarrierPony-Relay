@@ -19,7 +19,7 @@ $db = cp_db();
 
 $upd = $db->prepare(
     "UPDATE pairing_offers
-     SET state = 'accepted', responder_fpr = ?, responder_pubkey = ?
+     SET state = 'accepted', responder_fpr = ?, responder_pubkey = ?, accepted_at = UTC_TIMESTAMP()
      WHERE token = ? AND state = 'open' AND expires_at > UTC_TIMESTAMP()"
 );
 $upd->execute([$fpr, $pubkey, $token]);

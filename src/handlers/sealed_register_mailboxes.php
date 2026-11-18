@@ -26,16 +26,11 @@ $cfg = cp_config();
 $maxSec = ((int) ($cfg['message_ttl_max_days'] ?? 30)) * 86400;
 $now = time();
 $db = cp_db();
-$db->prepare('UPDATE sealed_devices SET last_seen = UTC_TIMESTAMP() WHERE id = ?')->execute([(int) $dev['id']]);
+$devPk = (int) $dev['id'];
+$db->prepare('UPDATE sealed_devices SET last_seen = UTC_TIMESTAMP() WHERE id = ?')->execute([$devPk]);
 
-// A mailbox is owned by the first device to claim it and cannot be repointed to
-// another device. This stops a group member, who can also derive a peer's group
-// address, from hijacking that peer's registration.
-$sel = $db->prepare('SELECT sealed_device_pk FROM mailboxes WHERE mailbox = ?');
-$insNew = $db->prepare('INSERT IGNORE INTO mailboxes (mailbox, sealed_device_pk, expires_at) VALUES (?, ?, ?)');
-$updOwn = $db->prepare('UPDATE mailboxes SET expires_at = ? WHERE mailbox = ? AND sealed_device_pk = ?');
-
-$count = 0;
+// mailbox => expiry, validated and de-duplicated.
+$valid = [];
 foreach ($mailboxes as $m) {
     $mid = is_array($m) ? (string) ($m['mailbox'] ?? '') : (string) $m;
     if (!preg_match('/^[0-9a-f]{64}$/', $mid)) {
@@ -45,19 +40,41 @@ foreach ($mailboxes as $m) {
     if ($exp <= $now || $exp > $now + $maxSec) {
         $exp = $now + $maxSec;
     }
-    $expSql = gmdate('Y-m-d H:i:s', $exp);
-    $sel->execute([$mid]);
-    $owner = $sel->fetchColumn();
-    if ($owner === false) {
-        // INSERT IGNORE, then re-read: a concurrent claim on the same
-        // (group-derivable) address may have won the race.
-        $insNew->execute([$mid, (int) $dev['id'], $expSql]);
-        $sel->execute([$mid]);
-        $owner = $sel->fetchColumn();
-    }
-    if ($owner !== false && (int) $owner === (int) $dev['id']) {
-        $updOwn->execute([$expSql, $mid, (int) $dev['id']]);
-        $count++;
-    }
+    $valid[$mid] = gmdate('Y-m-d H:i:s', $exp);
 }
-cp_json(200, ['ok' => true, 'registered' => $count]);
+if (!$valid) {
+    cp_json(200, ['ok' => true, 'registered' => 0]);
+}
+
+// A mailbox is owned by the first device to claim it and cannot be repointed to
+// another device. This stops a group member, who can also derive a peer's group
+// address, from hijacking that peer's registration.
+//
+// Set-based, so a 500-address batch is a handful of statements instead of ~4 per
+// address. One multi-row INSERT IGNORE claims every unowned address (a row another
+// device already owns is left alone, and a concurrent claim is settled by the
+// unique key), one UPDATE per distinct expiry refreshes only rows this device
+// owns, and one COUNT reports how many of the batch this device owns.
+$rows = [];
+$params = [];
+foreach ($valid as $mid => $expSql) {
+    $rows[] = '(?, ?, ?)';
+    array_push($params, $mid, $devPk, $expSql);
+}
+$db->prepare('INSERT IGNORE INTO mailboxes (mailbox, sealed_device_pk, expires_at) VALUES ' . implode(',', $rows))
+    ->execute($params);
+
+$byExpiry = [];
+foreach ($valid as $mid => $expSql) {
+    $byExpiry[$expSql][] = $mid;
+}
+foreach ($byExpiry as $expSql => $mids) {
+    $ph = implode(',', array_fill(0, count($mids), '?'));
+    $db->prepare("UPDATE mailboxes SET expires_at = ? WHERE sealed_device_pk = ? AND mailbox IN ($ph)")
+        ->execute(array_merge([$expSql, $devPk], $mids));
+}
+
+$ph = implode(',', array_fill(0, count($valid), '?'));
+$cnt = $db->prepare("SELECT COUNT(*) FROM mailboxes WHERE sealed_device_pk = ? AND mailbox IN ($ph)");
+$cnt->execute(array_merge([$devPk], array_keys($valid)));
+cp_json(200, ['ok' => true, 'registered' => (int) $cnt->fetchColumn()]);

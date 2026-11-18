@@ -7,7 +7,7 @@ $reporter = cp_authenticate($in);
 
 $a = cp_require($in, ['reported_fpr', 'category']);
 $reported = strtoupper($a['reported_fpr']);
-if (!preg_match('/^[0-9A-F]{40}$/', $reported)) {
+if (!cp_valid_fpr($reported)) {
     cp_json(400, ['error' => 'bad_reported_fpr']);
 }
 

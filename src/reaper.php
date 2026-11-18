@@ -39,7 +39,17 @@ if ($sdays > 0) {
     );
 }
 
-$staleOffers = $db->exec('DELETE FROM pairing_offers WHERE expires_at <= UTC_TIMESTAMP()');
+// Open offers die at expiry. Accepted offers are kept for a completion window so
+// an offerer whose app was closed when the responder accepted can still collect
+// the pairing later. Rows accepted before migration 007 have no accepted_at and
+// fall back to expires_at.
+$keepDays = max(1, (int) (cp_config()['pair_accepted_keep_days'] ?? 30));
+$staleOffers = $db->exec(
+    "DELETE FROM pairing_offers
+     WHERE (state = 'open' AND expires_at <= UTC_TIMESTAMP())
+        OR (state = 'accepted'
+            AND COALESCE(accepted_at, expires_at) < DATE_SUB(UTC_TIMESTAMP(), INTERVAL $keepDays DAY))"
+);
 
 printf(
     "%s reaper: expired_messages=%d acked_messages=%d stale_challenges=%d stale_devices=%d stale_offers=%d expired_sealed=%d stale_mailboxes=%d stale_sealed_devices=%d\n",

@@ -275,7 +275,7 @@ function cp_fcm_access_token(): ?string
 }
 
 /** @return array{code:int, unregistered:bool} */
-function cp_fcm_send(string $token, bool $silent = false): array
+function cp_fcm_send(string $token, bool $silent = false, string $kind = 'message'): array
 {
     $cfg = cp_config()['fcm'] ?? null;
     if (!$cfg || empty($cfg['enabled'])) {
@@ -293,7 +293,7 @@ function cp_fcm_send(string $token, bool $silent = false): array
     $payload = json_encode([
         'message' => [
             'token'   => $token,
-            'data'    => $silent ? ['wake' => '1', 'silent' => '1'] : ['wake' => '1'],
+            'data'    => cp_push_shape($silent, $kind)['fcm_data'],
             'android' => ['priority' => 'HIGH'],
         ],
     ]);
@@ -329,11 +329,69 @@ function cp_fcm_send(string $token, bool $silent = false): array
 // ── Dispatch ───────────────────────────────────────────────────────────
 
 /**
+ * What a push looks like for one deposit, on each platform. Nothing in it
+ * comes from the envelope: the relay cannot read one. It depends only on two
+ * things the sender states, whether the deposit is silent and whether it is a
+ * contact request.
+ *
+ * A real message gets the alert banner (content-available is set too so the
+ * app can fetch in the background); the banner carries no sender or content.
+ * A silent send (a control message or self-copy) gets a background wake only,
+ * so the app fetches and syncs without a phantom "New message" the user opens
+ * to find nothing behind. A contact request gets a banner that says so, and
+ * never who: on iOS by a key the app translates, with plain English text for
+ * an app that does not have the key; on Android by a field the app reads.
+ *
+ * @return array{apns_payload:string, apns_type:string, apns_priority:int, fcm_data:array<string,string>}
+ */
+function cp_push_shape(bool $silent, string $kind = 'message'): array
+{
+    if ($silent) {
+        return [
+            'apns_payload'  => json_encode(['aps' => ['content-available' => 1]]),
+            'apns_type'     => 'background',
+            'apns_priority' => 5,
+            'fcm_data'      => ['wake' => '1', 'silent' => '1'],
+        ];
+    }
+    if ($kind === 'request') {
+        return [
+            'apns_payload'  => json_encode([
+                'aps' => [
+                    'alert' => [
+                        'title'   => 'CarrierPony',
+                        'body'    => 'Someone wants to connect.',
+                        'loc-key' => 'Someone wants to connect. Tap to review.',
+                    ],
+                    'sound'             => 'default',
+                    'content-available' => 1,
+                ],
+            ]),
+            'apns_type'     => 'alert',
+            'apns_priority' => 10,
+            'fcm_data'      => ['wake' => '1', 'kind' => 'request'],
+        ];
+    }
+    return [
+        'apns_payload'  => json_encode([
+            'aps' => [
+                'alert'             => ['title' => 'CarrierPony', 'body' => 'New message'],
+                'sound'             => 'default',
+                'content-available' => 1,
+            ],
+        ]),
+        'apns_type'     => 'alert',
+        'apns_priority' => 10,
+        'fcm_data'      => ['wake' => '1'],
+    ];
+}
+
+/**
  * Send a contentless push to the given device primary keys, best-effort,
  * over each device's registered platform. Tokens the platform reports dead
  * are cleared so they don't accumulate.
  */
-function cp_push_notify(array $devicePks, bool $silent = false): void
+function cp_push_notify(array $devicePks, bool $silent = false, string $kind = 'message'): void
 {
     if (!$devicePks) {
         return;
@@ -351,30 +409,10 @@ function cp_push_notify(array $devicePks, bool $silent = false): void
         return;
     }
 
-    // Two payload shapes. A real message gets the alert banner (content-available
-    // is set too so the app can fetch in the background); the banner carries no
-    // sender or content. A silent send (a control message or self-copy, flagged by
-    // the client) gets a background wake only, so the app fetches and syncs without
-    // a phantom "New message" the user opens to find nothing behind.
-    if ($silent) {
-        // Silent background wake: no alert, no sound. Wakes the app to fetch and
-        // apply a control message or self-copy without buzzing the user (read
-        // receipts, profile updates, deletes, cross-device self-copies). The
-        // client marks these silent because they surface nothing to read.
-        $apnsPayload = json_encode(['aps' => ['content-available' => 1]]);
-        $apnsPushType = 'background';
-        $apnsPriority = 5;
-    } else {
-        $apnsPayload = json_encode([
-            'aps' => [
-                'alert'             => ['title' => 'CarrierPony', 'body' => 'New message'],
-                'sound'             => 'default',
-                'content-available' => 1,
-            ],
-        ]);
-        $apnsPushType = 'alert';
-        $apnsPriority = 10;
-    }
+    $shape = cp_push_shape($silent, $kind);
+    $apnsPayload = $shape['apns_payload'];
+    $apnsPushType = $shape['apns_type'];
+    $apnsPriority = $shape['apns_priority'];
 
     $apnsDefault = (string) ($cfg['apns']['environment'] ?? 'production');
 
@@ -394,7 +432,7 @@ function cp_push_notify(array $devicePks, bool $silent = false): void
                 if (!$fcmEnabled) {
                     continue;
                 }
-                $result = cp_fcm_send($token, $silent);
+                $result = cp_fcm_send($token, $silent, $kind);
                 if ($result['unregistered']) {
                     $dead[] = (int) $row['id'];
                 }
