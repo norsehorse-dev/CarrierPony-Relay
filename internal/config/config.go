@@ -14,7 +14,12 @@ import (
 type Config struct {
 	// Address the relay listens on. It is meant to sit behind a reverse proxy
 	// that terminates TLS, so the default is loopback only.
-	Listen      string      `toml:"listen"`
+	Listen string `toml:"listen"`
+	// How often the relay clears out expired and delivered rows, in minutes.
+	// 0 turns the built-in pass off, for a relay that runs
+	// "carrierpony-relay reap" from cron instead.
+	ReapEveryMinutes int `toml:"reap_every_minutes"`
+
 	Database    Database    `toml:"database"`
 	Limits      Limits      `toml:"limits"`
 	PushGateway PushGateway `toml:"push_gateway"`
@@ -58,7 +63,8 @@ type PushGateway struct {
 // Default returns the configuration of a relay with no config file settings.
 func Default() Config {
 	return Config{
-		Listen: "127.0.0.1:8080",
+		Listen:           "127.0.0.1:8080",
+		ReapEveryMinutes: 5,
 		Database: Database{
 			Driver: "sqlite",
 			Host:   "127.0.0.1",
@@ -109,6 +115,9 @@ func Load(path string) (Config, error) {
 func (c Config) Validate() error {
 	if c.Listen == "" {
 		return fmt.Errorf("listen is empty")
+	}
+	if c.ReapEveryMinutes < 0 {
+		return fmt.Errorf("reap_every_minutes cannot be negative")
 	}
 	switch c.Database.Driver {
 	case "mysql":

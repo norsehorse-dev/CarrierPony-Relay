@@ -7,6 +7,11 @@
 # terminates TLS (Caddy, nginx or Apache), so it listens on loopback only.
 listen = "127.0.0.1:8080"
 
+# Minutes between passes that delete expired and delivered messages, spent
+# login nonces, lapsed mailboxes and pairing offers, and stale devices. Set it
+# to 0 to turn the built-in pass off and run "carrierpony-relay reap" from cron.
+reap_every_minutes = 5
+
 [database]
 # "sqlite" keeps everything in one file and needs no database server. It suits
 # a relay for a household or a small group.

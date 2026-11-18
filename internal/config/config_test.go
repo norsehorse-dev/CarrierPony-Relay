@@ -39,6 +39,9 @@ url = ""
 	if cfg.Listen != "127.0.0.1:9000" || cfg.Database.Driver != "mysql" || cfg.Database.Password != "secret" {
 		t.Fatalf("settings from the file were not applied: %+v", cfg)
 	}
+	if cfg.ReapEveryMinutes != 5 {
+		t.Fatalf("reap_every_minutes = %d", cfg.ReapEveryMinutes)
+	}
 	if cfg.Database.Name != "carrierpony" || cfg.Limits.ChallengeTTL != 300 || cfg.Limits.InboxBytesBudget != 8388608 {
 		t.Fatalf("defaults were lost: %+v", cfg)
 	}
@@ -75,6 +78,7 @@ func TestBadValuesAreRefused(t *testing.T) {
 		"[limits]\nmax_envelope_bytes = 0\n",
 		"[limits]\ndevice_stale_days = -1\n",
 		"listen = \"\"\n",
+		"reap_every_minutes = -1\n",
 		"listen = 5\n",
 	} {
 		if _, err := Load(write(t, body)); err == nil {
