@@ -15,10 +15,18 @@ import (
 // on the next poll.
 const maxWakesInFlight = 64
 
-// notify wakes the recipient's devices after a message is stored. Devices that
-// opted in are woken through the push gateway. Pushing with this relay's own
-// APNs and FCM credentials is ported in a later stage.
+// notify wakes the recipient's devices after a message is stored: through the
+// push gateway for devices that opted in to it, and with this relay's own APNs
+// and FCM credentials for devices that registered a push token here.
 func (s *Server) notify(ctx context.Context, devices []int64, silent bool, kind string) {
+	s.wakeThroughGateway(ctx, devices, silent)
+	s.pushLocally(ctx, devices, silent, kind)
+}
+
+// wakeThroughGateway nudges the push gateway for each of the devices that has a
+// wake token. It runs even on a relay with no push credentials of its own,
+// which is the whole point for a self-hosted one.
+func (s *Server) wakeThroughGateway(ctx context.Context, devices []int64, silent bool) {
 	if len(devices) == 0 || s.cfg.PushGateway.URL == "" {
 		return
 	}

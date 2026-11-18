@@ -23,6 +23,8 @@ type Config struct {
 	Database    Database    `toml:"database"`
 	Limits      Limits      `toml:"limits"`
 	PushGateway PushGateway `toml:"push_gateway"`
+	APNs        APNs        `toml:"apns"`
+	FCM         FCM         `toml:"fcm"`
 }
 
 // Database selects and locates the store. Driver is "mysql" or "sqlite".
@@ -60,6 +62,26 @@ type PushGateway struct {
 	URL string `toml:"url"`
 }
 
+// APNs lets the relay push to iPhones itself. It only makes sense for whoever
+// publishes the app: the key is tied to the app's bundle id.
+type APNs struct {
+	Enabled  bool   `toml:"enabled"`
+	KeyFile  string `toml:"key_file"`
+	KeyID    string `toml:"key_id"`
+	TeamID   string `toml:"team_id"`
+	BundleID string `toml:"bundle_id"`
+	// Environment tried first for a device not yet seen to work on either:
+	// "production" or "sandbox".
+	Environment string `toml:"environment"`
+}
+
+// FCM lets the relay wake Android devices itself, with a Google service
+// account for the app's Firebase project.
+type FCM struct {
+	Enabled            bool   `toml:"enabled"`
+	ServiceAccountFile string `toml:"service_account_file"`
+}
+
 // Default returns the configuration of a relay with no config file settings.
 func Default() Config {
 	return Config{
@@ -85,6 +107,7 @@ func Default() Config {
 			SealedDeviceStaleDays: 60,
 		},
 		PushGateway: PushGateway{URL: "https://push.carrierpony.com"},
+		APNs:        APNs{BundleID: "com.carrierpony.app", Environment: "production"},
 	}
 }
 
@@ -130,6 +153,17 @@ func (c Config) Validate() error {
 		}
 	default:
 		return fmt.Errorf("database: driver must be \"mysql\" or \"sqlite\", not %q", c.Database.Driver)
+	}
+	if c.APNs.Enabled {
+		if c.APNs.KeyFile == "" || c.APNs.KeyID == "" || c.APNs.TeamID == "" || c.APNs.BundleID == "" {
+			return fmt.Errorf("apns: enabled needs key_file, key_id, team_id and bundle_id")
+		}
+		if c.APNs.Environment != "production" && c.APNs.Environment != "sandbox" {
+			return fmt.Errorf("apns: environment must be \"production\" or \"sandbox\", not %q", c.APNs.Environment)
+		}
+	}
+	if c.FCM.Enabled && c.FCM.ServiceAccountFile == "" {
+		return fmt.Errorf("fcm: enabled needs service_account_file")
 	}
 	l := c.Limits
 	if l.ChallengeTTL <= 0 || l.MessageTTLMaxDays <= 0 || l.MaxEnvelopeBytes <= 0 || l.InboxBytesBudget <= 0 ||

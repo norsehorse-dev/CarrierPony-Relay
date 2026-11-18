@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/norsehorse-dev/CarrierPony-Relay/internal/config"
+	"github.com/norsehorse-dev/CarrierPony-Relay/internal/push"
 	"github.com/norsehorse-dev/CarrierPony-Relay/internal/store"
 )
 
@@ -27,6 +28,11 @@ type Server struct {
 	http *http.Client
 	// wakes holds one slot per gateway call in flight.
 	wakes chan struct{}
+	// apns and fcm are nil unless this relay has its own push credentials.
+	apns *push.APNs
+	fcm  *push.FCM
+	// pushes holds one slot per send whose pushes are in flight.
+	pushes chan struct{}
 }
 
 type handler func(s *Server, ctx context.Context, in input) result
@@ -42,11 +48,27 @@ type route struct {
 // legitimate one is a report, a few hundred kilobytes at the outside.
 const smallBody = 1 << 20
 
-// New builds a server over an open store.
-func New(cfg config.Config, st *store.Store) *Server {
+// New builds a server over an open store. It fails when the config turns on
+// push and the credentials it names cannot be used.
+func New(cfg config.Config, st *store.Store) (*Server, error) {
 	s := &Server{cfg: cfg, store: st, now: time.Now,
-		http:  &http.Client{Timeout: 5 * time.Second},
-		wakes: make(chan struct{}, maxWakesInFlight)}
+		http:   &http.Client{Timeout: 5 * time.Second},
+		wakes:  make(chan struct{}, maxWakesInFlight),
+		pushes: make(chan struct{}, maxPushBatches)}
+	if cfg.APNs.Enabled {
+		apns, err := push.NewAPNs(cfg.APNs)
+		if err != nil {
+			return nil, err
+		}
+		s.apns = apns
+	}
+	if cfg.FCM.Enabled {
+		fcm, err := push.NewFCM(cfg.FCM)
+		if err != nil {
+			return nil, err
+		}
+		s.fcm = fcm
+	}
 	s.routes = map[string]route{
 		"/v1/challenge":                 {handle: (*Server).challenge},
 		"/v1/register-device":           {handle: (*Server).registerDevice},
@@ -65,7 +87,7 @@ func New(cfg config.Config, st *store.Store) *Server {
 		"/v1/sealed/inbox":              {handle: (*Server).sealedInbox},
 		"/v1/sealed/ack":                {handle: (*Server).sealedAck},
 	}
-	return s
+	return s, nil
 }
 
 // requestContext is the context a request's database work runs under. It is

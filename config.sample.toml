@@ -45,3 +45,27 @@ sealed_device_stale_days = 60    # same for sealed devices; keep it above twice
 # only ever gets a content-free nudge for devices that opted in. Point this at
 # your own gateway if you run one, or set it to "" to turn gateway wakes off.
 url = "https://push.carrierpony.com"
+
+# Push with this relay's own credentials is OFF by default, and that is the
+# right setting for almost every self-hosted relay. Waking the CarrierPony app
+# needs the app publisher's own APNs key and Firebase service account, both
+# tied to the published app. Someone running the published app against their
+# own relay does not have them, and uses the push gateway above instead. These
+# two blocks only make sense if you build and distribute your own app.
+#
+# When a block is enabled the relay checks the key at startup and refuses to
+# start if it cannot use it.
+
+# [apns]
+# enabled = true
+# key_file = "/etc/carrierpony/AuthKey_XXXXXXXXXX.p8"
+# key_id = "XXXXXXXXXX"
+# team_id = "XXXXXXXXXX"
+# bundle_id = "com.carrierpony.app"
+# environment = "production"    # tried first; "sandbox" for Xcode builds. A
+#                               # device whose token belongs to the other one
+#                               # is found out and remembered.
+
+# [fcm]
+# enabled = true
+# service_account_file = "/etc/carrierpony/fcm-service-account.json"

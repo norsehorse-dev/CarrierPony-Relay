@@ -25,7 +25,10 @@ func newServer(t *testing.T) (*Server, *httptest.Server) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := New(cfg, st)
+	s, err := New(cfg, st)
+	if err != nil {
+		t.Fatal(err)
+	}
 	ts := httptest.NewServer(s)
 	t.Cleanup(func() { ts.Close(); st.Close() })
 	return s, ts

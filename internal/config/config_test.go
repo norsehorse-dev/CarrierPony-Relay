@@ -79,6 +79,9 @@ func TestBadValuesAreRefused(t *testing.T) {
 		"[limits]\ndevice_stale_days = -1\n",
 		"listen = \"\"\n",
 		"reap_every_minutes = -1\n",
+		"[apns]\nenabled = true\n",
+		"[apns]\nenabled = true\nkey_file = \"k.p8\"\nkey_id = \"K\"\nteam_id = \"T\"\nenvironment = \"staging\"\n",
+		"[fcm]\nenabled = true\n",
 		"listen = 5\n",
 	} {
 		if _, err := Load(write(t, body)); err == nil {

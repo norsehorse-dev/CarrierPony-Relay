@@ -53,6 +53,13 @@ func main() {
 	}
 }
 
+func onOff(on bool) string {
+	if on {
+		return "on"
+	}
+	return "off"
+}
+
 // open reads the config named by a command's -config flag and opens its store.
 func open(command string, args []string) (config.Config, *store.Store, error) {
 	fs := flag.NewFlagSet(command, flag.ExitOnError)
@@ -95,9 +102,13 @@ func serve(args []string) error {
 		go reaper.Every(background, time.Duration(cfg.ReapEveryMinutes)*time.Minute, st, cfg.Limits)
 	}
 
+	handler, err := api.New(cfg, st)
+	if err != nil {
+		return err
+	}
 	srv := &http.Server{
 		Addr:              cfg.Listen,
-		Handler:           api.New(cfg, st),
+		Handler:           handler,
 		ReadHeaderTimeout: 15 * time.Second,
 		// Generous enough for the largest envelope over a slow phone link.
 		ReadTimeout:    5 * time.Minute,
@@ -110,7 +121,8 @@ func serve(args []string) error {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	failed := make(chan error, 1)
 	go func() { failed <- srv.ListenAndServe() }()
-	log.Printf("carrierpony: relay %s listening on %s, database %s", version, cfg.Listen, st.Driver)
+	log.Printf("carrierpony: relay %s listening on %s, database %s, own push: apns %s, fcm %s",
+		version, cfg.Listen, st.Driver, onOff(cfg.APNs.Enabled), onOff(cfg.FCM.Enabled))
 
 	select {
 	case err := <-failed:
