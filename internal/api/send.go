@@ -144,8 +144,3 @@ func (s *Server) send(ctx context.Context, _ string, in input) result {
 
 	return ok(field{"message_id", messageID}, field{"expires_at", expires})
 }
-
-// notify wakes the recipient's devices. Push is ported in a later stage; until
-// then a message waits for the next poll.
-func (s *Server) notify(ctx context.Context, devices []int64, silent bool, kind string) {
-}

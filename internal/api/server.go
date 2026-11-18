@@ -23,6 +23,10 @@ type Server struct {
 	store  *store.Store
 	now    func() time.Time
 	routes map[string]route
+	// http makes the relay's outgoing calls, to the push gateway.
+	http *http.Client
+	// wakes holds one slot per gateway call in flight.
+	wakes chan struct{}
 }
 
 type handler func(s *Server, ctx context.Context, in input) result
@@ -40,19 +44,21 @@ const smallBody = 1 << 20
 
 // New builds a server over an open store.
 func New(cfg config.Config, st *store.Store) *Server {
-	s := &Server{cfg: cfg, store: st, now: time.Now}
+	s := &Server{cfg: cfg, store: st, now: time.Now,
+		http:  &http.Client{Timeout: 5 * time.Second},
+		wakes: make(chan struct{}, maxWakesInFlight)}
 	s.routes = map[string]route{
 		"/v1/challenge":                 {handle: (*Server).challenge},
 		"/v1/register-device":           {handle: (*Server).registerDevice},
 		"/v1/send":                      {handle: authed((*Server).send), large: true},
 		"/v1/inbox":                     {handle: authed((*Server).inbox)},
 		"/v1/ack":                       {handle: authed((*Server).ack)},
-		"/v1/register-push":             {handle: authed(notPortedAuthed)},
-		"/v1/register-wake":             {handle: authed(notPortedAuthed)},
-		"/v1/report":                    {handle: authed(notPortedAuthed)},
-		"/v1/pair/offer":                {handle: authed(notPortedAuthed)},
-		"/v1/pair/accept":               {handle: authed(notPortedAuthed)},
-		"/v1/pair/status":               {handle: authed(notPortedAuthed)},
+		"/v1/register-push":             {handle: authed((*Server).registerPush)},
+		"/v1/register-wake":             {handle: authed((*Server).registerWake)},
+		"/v1/report":                    {handle: authed((*Server).report)},
+		"/v1/pair/offer":                {handle: authed((*Server).pairOffer)},
+		"/v1/pair/accept":               {handle: authed((*Server).pairAccept)},
+		"/v1/pair/status":               {handle: authed((*Server).pairStatus)},
 		"/v1/sealed/register-device":    {handle: notPorted},
 		"/v1/sealed/register-mailboxes": {handle: notPorted},
 		"/v1/sealed/send":               {handle: notPorted, large: true},
@@ -65,12 +71,6 @@ func New(cfg config.Config, st *store.Store) *Server {
 // notPorted answers for an endpoint the Go relay does not serve yet. It goes
 // away when the last endpoint is ported.
 func notPorted(*Server, context.Context, input) result {
-	return fail(http.StatusNotImplemented, "not_implemented")
-}
-
-// notPortedAuthed is notPorted for an endpoint that needs a login. The login is
-// still checked first, as it will be once the endpoint is served.
-func notPortedAuthed(*Server, context.Context, string, input) result {
 	return fail(http.StatusNotImplemented, "not_implemented")
 }
 
