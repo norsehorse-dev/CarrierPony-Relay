@@ -11,7 +11,7 @@ verifier/dist/
 
 # Go relay
 /carrierpony-relay
-config.toml
+/config.toml
 *.db
 *.db-wal
 *.db-shm

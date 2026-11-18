@@ -5,3 +5,14 @@ config.php.bak
 .env
 .git
 .gitignore
+
+# Not needed in either image
+/carrierpony-relay
+*.db
+*.db-wal
+*.db-shm
+config.toml
+verifier/dist/
+verifier/cp-verify
+verifier/cp-testkey
+PLANNING_*.md

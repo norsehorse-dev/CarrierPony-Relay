@@ -1,0 +1,38 @@
+# Image for the Go relay. See GO-RELAY.md. The PHP relay's image is ./Dockerfile.
+#
+#   docker build -f Dockerfile.gorelay -t carrierpony-relay .
+#
+# The result holds one static binary, the CA certificates it needs to reach the
+# push gateway, and a config that keeps the database in /data. There is no
+# shell and no package manager in it.
+
+FROM golang:1.24 AS build
+ARG VERSION=dev
+WORKDIR /src
+# The module files first, so the dependency download is cached until they
+# change. The login verifier is a local module, and its go.mod has to be there
+# for the download to resolve.
+COPY go.mod go.sum ./
+COPY verifier/go.mod verifier/go.sum ./verifier/
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o /carrierpony-relay ./cmd/carrierpony-relay
+# What the final image needs besides the binary, laid out here because that
+# image has no mkdir or chmod. /out/data is the one directory the relay writes
+# to; a named volume mounted on /data inherits the owner set below. The config
+# is installed with an explicit mode: the relay does not run as root, and a
+# checkout made under a strict umask would otherwise leave the file unreadable
+# inside the image.
+RUN mkdir -p /out/data /out/etc/carrierpony \
+    && install -m 644 docker/go/config.toml /out/etc/carrierpony/config.toml
+
+FROM scratch
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build /carrierpony-relay /carrierpony-relay
+COPY --from=build --chown=10001:10001 /out/data /data
+COPY --from=build /out/etc/carrierpony /etc/carrierpony
+USER 10001:10001
+VOLUME /data
+EXPOSE 8080
+ENTRYPOINT ["/carrierpony-relay"]
+CMD ["serve", "-config", "/etc/carrierpony/config.toml"]

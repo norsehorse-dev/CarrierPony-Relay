@@ -1,0 +1,41 @@
+# The Go relay with Caddy in front. See GO-RELAY.md.
+#
+#   echo "DOMAIN=relay.example.com" > .env
+#   docker compose -f docker-compose.go.yml up -d
+#
+# Everything the relay stores is in the relay_data volume, one SQLite file.
+
+services:
+  relay:
+    build:
+      context: .
+      dockerfile: Dockerfile.gorelay
+    volumes:
+      - relay_data:/data
+    # The relay only ever writes to /data, and needs no privileges at all.
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./docker/go/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - relay
+    restart: unless-stopped
+
+volumes:
+  relay_data:
+  caddy_data:
+  caddy_config:

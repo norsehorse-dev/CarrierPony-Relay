@@ -1,0 +1,11 @@
+# The Go relay's config inside the Docker image. To change a setting, copy this
+# file, edit the copy, and mount it over /etc/carrierpony/config.toml. Every
+# setting is described in config.sample.toml.
+
+# Only reachable from other containers on the compose network. Caddy is the one
+# that faces the internet.
+listen = "0.0.0.0:8080"
+
+[database]
+driver = "sqlite"
+path = "/data/relay.db"

@@ -5,8 +5,8 @@ PHP one, with the same answers, so every CarrierPony app works with either. It
 is one static binary with no PHP, no Apache module and no gpg, and it can keep
 its data in a single SQLite file instead of a MySQL server.
 
-**Status: preview.** The PHP relay is still what `install.sh` and the Docker
-image set up, and what [INSTALL.md](INSTALL.md) describes. That changes in the
+**Status: preview.** The PHP relay is still what `install.sh` and the default
+Docker setup (`docker compose up`) give you, and what [INSTALL.md](INSTALL.md) describes. That changes in the
 2.0.0 release. Until then this page is for people who want to run the Go relay
 early.
 
@@ -44,6 +44,34 @@ sudo systemctl enable --now carrierpony-relay
 
 The relay speaks plain HTTP on loopback. Put a web server in front of it for
 TLS, as described under "The web server in front" below.
+
+## Docker
+
+With Docker and a domain pointed at the server:
+
+```
+echo "DOMAIN=relay.example.com" > .env
+docker compose -f docker-compose.go.yml up -d --build
+```
+
+That builds the relay from source, starts it with a SQLite database in the
+`relay_data` volume, and puts Caddy in front, which fetches and renews the
+certificate. There is no database container and nothing else to set.
+
+The image holds the relay binary, CA certificates and a config, and nothing
+else: no shell and no package manager. It runs as an unprivileged user with a
+read-only root filesystem.
+
+To change a setting, copy `docker/go/config.toml`, edit the copy, and mount it
+over the one in the image by adding a line under the relay's `volumes`:
+
+```
+      - ./my-config.toml:/etc/carrierpony/config.toml:ro
+```
+
+To back up, stop the relay and copy the volume, or run the SQLite backup
+described below against the file in the volume. To update, pull the repository
+and run the `up` command again.
 
 ## Moving a PHP relay to Go
 

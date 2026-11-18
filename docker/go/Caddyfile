@@ -1,0 +1,7 @@
+# Set DOMAIN in .env to your relay's hostname and Caddy fetches a Let's Encrypt
+# certificate automatically. For a local test without a domain, set DOMAIN to
+# :80 to serve plain HTTP. Never run a real relay that way: logins must travel
+# over TLS.
+{$DOMAIN} {
+	reverse_proxy relay:8080
+}
