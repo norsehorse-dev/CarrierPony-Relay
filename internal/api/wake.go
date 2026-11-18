@@ -22,13 +22,12 @@ func (s *Server) notify(ctx context.Context, devices []int64, silent bool, kind 
 	if len(devices) == 0 || s.cfg.PushGateway.URL == "" {
 		return
 	}
-	marks := strings.TrimSuffix(strings.Repeat("?,", len(devices)), ",")
 	args := make([]any, len(devices))
 	for i, d := range devices {
 		args[i] = d
 	}
 	rows, err := s.store.DB.QueryContext(ctx,
-		"SELECT wake_token FROM devices WHERE id IN ("+marks+") AND wake_token IS NOT NULL AND wake_token <> ''", args...)
+		"SELECT wake_token FROM devices WHERE id IN ("+marks(len(devices))+") AND wake_token IS NOT NULL AND wake_token <> ''", args...)
 	if err != nil {
 		log.Printf("carrierpony: wake: %v", err)
 		return

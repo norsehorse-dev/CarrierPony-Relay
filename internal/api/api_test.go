@@ -64,7 +64,6 @@ func TestRouting(t *testing.T) {
 		{"POST", "/v1/%63hallenge", 404},
 		{"POST", "/v1/nope", 404},
 		{"POST", "/", 404},
-		{"POST", "/v1/sealed/send", 501},
 	} {
 		status, ctype, body := do(t, ts, c.method, c.path, good)
 		if status != c.status {
@@ -121,7 +120,7 @@ func TestBodyLimits(t *testing.T) {
 	if status, _, body := do(t, ts, "POST", "/v1/sealed/send", pad(limit)); status != 413 || body != `{"error":"too_large"}` {
 		t.Errorf("envelope endpoint over its limit: %d %s", status, body)
 	}
-	if status, _, _ := do(t, ts, "POST", "/v1/sealed/send", pad(limit-100)); status != 501 {
+	if status, _, _ := do(t, ts, "POST", "/v1/sealed/send", pad(limit-100)); status != 400 {
 		t.Errorf("envelope endpoint under its limit: %d", status)
 	}
 	// Without a Content-Length the limit still holds.

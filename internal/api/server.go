@@ -59,19 +59,13 @@ func New(cfg config.Config, st *store.Store) *Server {
 		"/v1/pair/offer":                {handle: authed((*Server).pairOffer)},
 		"/v1/pair/accept":               {handle: authed((*Server).pairAccept)},
 		"/v1/pair/status":               {handle: authed((*Server).pairStatus)},
-		"/v1/sealed/register-device":    {handle: notPorted},
-		"/v1/sealed/register-mailboxes": {handle: notPorted},
-		"/v1/sealed/send":               {handle: notPorted, large: true},
-		"/v1/sealed/inbox":              {handle: notPorted},
-		"/v1/sealed/ack":                {handle: notPorted},
+		"/v1/sealed/register-device":    {handle: (*Server).sealedRegisterDevice},
+		"/v1/sealed/register-mailboxes": {handle: (*Server).sealedRegisterMailboxes},
+		"/v1/sealed/send":               {handle: (*Server).sealedSend, large: true},
+		"/v1/sealed/inbox":              {handle: (*Server).sealedInbox},
+		"/v1/sealed/ack":                {handle: (*Server).sealedAck},
 	}
 	return s
-}
-
-// notPorted answers for an endpoint the Go relay does not serve yet. It goes
-// away when the last endpoint is ported.
-func notPorted(*Server, context.Context, input) result {
-	return fail(http.StatusNotImplemented, "not_implemented")
 }
 
 // requestContext is the context a request's database work runs under. It is
