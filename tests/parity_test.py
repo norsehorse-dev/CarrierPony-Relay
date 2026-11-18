@@ -23,6 +23,10 @@
 # The test starts a stand-in push gateway on GATEWAY_PORT and records the wakes
 # the relay sends it. MYSQL and REAPER are optional; the checks that need them
 # are reported as SKIP when they are not set.
+#
+# STOP_AFTER ends the run after one section, for a relay that does not serve
+# every endpoint yet. The sections, in order: routing, challenge, login,
+# register, send, inbox, ack, push, wake, report, pairing, sealed, reaper.
 import urllib.request, urllib.error, json, os, base64, subprocess, sys, re, time, hmac, hashlib, threading, shlex
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -31,6 +35,7 @@ TESTKEY = os.environ.get("TESTKEY", "cp-testkey")
 MYSQL = os.environ.get("MYSQL", "")
 REAPER = os.environ.get("REAPER", "")
 GATEWAY_PORT = int(os.environ.get("GATEWAY_PORT", "8097"))
+STOP_AFTER = os.environ.get("STOP_AFTER", "")
 MAX_ENVELOPE = 30000
 MAX_TTL = 30 * 86400
 
@@ -47,6 +52,17 @@ def skip(name):
     global skips
     skips += 1
     print("SKIP  " + name)
+
+def finish(stopped=""):
+    gateway.shutdown()
+    print()
+    print(("ALL PASS" if fails == 0 else "%d FAILED" % fails) + ((", %d skipped" % skips) if skips else "")
+          + ((", stopped after " + stopped) if stopped else ""))
+    sys.exit(1 if fails else 0)
+
+def done(section):
+    if STOP_AFTER == section:
+        finish(section)
 
 def raw(path, data=None, method="POST", ctype="application/json"):
     req = urllib.request.Request(BASE + path, data=data, headers={"content-type": ctype}, method=method)
@@ -156,6 +172,8 @@ for label, data in [("an empty body", b""), ("a body that is not JSON", b"not js
     s, ct, text = raw("/v1/challenge", data)
     check("challenge with %s is 400 missing:fpr" % label, s == 400 and json.loads(text) == {"error": "missing:fpr"}, (s, text))
 
+done("routing")
+
 # ---- challenge -------------------------------------------------------------
 
 for bad in ["A" * 39, "A" * 41, "A" * 63, "A" * 65, "G" * 40, "A" * 39 + " "]:
@@ -164,6 +182,8 @@ s, b = post("/v1/challenge", {"fpr": "ab" * 20})
 check("challenge answers exactly a 64-hex nonce", s == 200 and list(b) == ["nonce"] and HEX64.match(b["nonce"]) is not None, (s, b))
 s, b2 = post("/v1/challenge", {"fpr": "ab" * 20})
 check("each challenge is a new nonce", b2.get("nonce") != b.get("nonce"))
+
+done("challenge")
 
 # ---- login refusals, in the order the relay checks them ---------------------
 
@@ -182,6 +202,8 @@ check("login with an unknown nonce is 401 bad_challenge",
 check("login before registering is 401 bad_signature", is_err(a.call("/v1/inbox", {"device_id": a.device_id}), 401, "bad_signature"))
 body = a.auth(); body["sig"] = "not a signature"
 check("login with a broken signature is 401 bad_signature", is_err(post("/v1/inbox", body), 401, "bad_signature"))
+
+done("login")
 
 # ---- register-device -------------------------------------------------------
 
@@ -223,6 +245,8 @@ check("a nonce works once", first[0] == 200 and is_err(post("/v1/inbox", dict(bo
 body = a.auth(); body["fpr"] = a.fpr.lower()
 check("login accepts a lowercase fingerprint", post("/v1/inbox", dict(body, device_id=a.device_id))[0] == 200)
 
+done("register")
+
 # ---- send ------------------------------------------------------------------
 
 env = b64(11)
@@ -257,6 +281,8 @@ s, b = a.call("/v1/send", {"to_fpr": bob.fpr, "envelope": env, "expires_at": int
 check("an expiry beyond the maximum becomes the maximum", s == 200 and abs(b.get("expires_at", 0) - (int(time.time()) + MAX_TTL)) <= 5, (s, b))
 m_far = b.get("message_id")
 
+done("send")
+
 # ---- inbox -----------------------------------------------------------------
 
 check("inbox without a device is 400 missing:device_id", is_err(bob.call("/v1/inbox"), 400, "missing:device_id"))
@@ -280,6 +306,8 @@ if got:
     check("the envelope comes back unchanged", m["envelope"] == b64(MAX_ENVELOPE))
 check("polling again returns the same message until it is acked",
       [m["message_id"] for m in bob.call("/v1/inbox", {"device_id": bob.device_id})[1].get("messages", [])] == [m_big])
+
+done("inbox")
 
 # ---- ack -------------------------------------------------------------------
 
@@ -337,6 +365,8 @@ check("the next poll brings the rest", got == ids[2:], (got, ids))
 bob.call("/v1/ack", {"device_id": bob.device_id, "message_ids": ids})
 bob.call("/v1/ack", {"device_id": bob_dev2, "message_ids": ids})
 
+done("ack")
+
 # ---- register-push ---------------------------------------------------------
 
 check("register-push without a device is 400 missing:device_id", is_err(a.call("/v1/register-push", {"push_token": "t"}), 400, "missing:device_id"))
@@ -360,6 +390,8 @@ if MYSQL:
     sql("UPDATE devices SET push_token = NULL WHERE device_id='%s'" % a.device_id)
 else:
     skip("stored push token and platform (needs MYSQL)")
+
+done("push")
 
 # ---- register-wake and the gateway -----------------------------------------
 
@@ -392,6 +424,8 @@ for dev in (bob.device_id, bob_dev2):
     ids = [m["message_id"] for m in bob.call("/v1/inbox", {"device_id": dev})[1].get("messages", [])]
     bob.call("/v1/ack", {"device_id": dev, "message_ids": ids})
 
+done("wake")
+
 # ---- report ----------------------------------------------------------------
 
 check("report without a fingerprint is 400 missing:reported_fpr", is_err(a.call("/v1/report", {"category": "spam"}), 400, "missing:reported_fpr"))
@@ -415,6 +449,8 @@ if MYSQL:
           one("SELECT COUNT(*) FROM reports WHERE BINARY reported_fpr='%s' AND BINARY category='spam' AND reporter_fpr='%s'" % (bob.fpr, a.fpr)) == "2")
 else:
     skip("stored report (needs MYSQL)")
+
+done("report")
 
 # ---- pairing ---------------------------------------------------------------
 
@@ -461,6 +497,8 @@ if MYSQL:
     check("an accepted offer past its time is still collectable", a.call("/v1/pair/status", {"token": token})[1].get("state") == "accepted")
 else:
     skip("expired pairing offers (needs MYSQL)")
+
+done("pairing")
 
 # ---- sealed path -----------------------------------------------------------
 
@@ -615,6 +653,8 @@ if MYSQL:
 else:
     skip("expired mailboxes and stored wake token (needs MYSQL)")
 
+done("sealed")
+
 # ---- reaper ----------------------------------------------------------------
 
 if MYSQL and REAPER:
@@ -672,7 +712,4 @@ if MYSQL and REAPER:
 else:
     skip("reaper (needs MYSQL and REAPER)")
 
-gateway.shutdown()
-print()
-print(("ALL PASS" if fails == 0 else "%d FAILED" % fails) + ((", %d skipped" % skips) if skips else ""))
-sys.exit(1 if fails else 0)
+finish()

@@ -1,0 +1,42 @@
+# CarrierPony relay configuration. Copy to config.toml and edit.
+# Every setting is optional; the values shown are the defaults unless a comment
+# says otherwise. The file holds the database password, so keep it readable
+# only by the user the relay runs as.
+
+# The relay speaks plain HTTP and is meant to sit behind a reverse proxy that
+# terminates TLS (Caddy, nginx or Apache), so it listens on loopback only.
+listen = "127.0.0.1:8080"
+
+[database]
+# "sqlite" keeps everything in one file and needs no database server. It suits
+# a relay for a household or a small group.
+driver = "sqlite"
+path = "/var/lib/carrierpony/relay.db"
+
+# "mysql" uses a MySQL or MariaDB server, with the tables from schema.sql and
+# migrations/. host may be a name, name:port, or the path of a unix socket.
+# driver = "mysql"
+# host = "127.0.0.1"
+# name = "carrierpony"
+# user = "carrierpony"
+# password = "CHANGE_ME"
+
+[limits]
+challenge_ttl = 300              # seconds a login nonce stays valid
+message_ttl_max_days = 30        # hard cap on how long a message is held
+max_envelope_bytes = 26214400    # envelopes larger than this are refused
+inbox_bytes_budget = 8388608     # most envelope bytes one inbox poll returns
+pair_offer_ttl = 86400           # seconds an unaccepted pairing offer stays open
+pair_accepted_keep_days = 30     # days an accepted offer stays collectable
+pair_max_open = 20               # open pairing offers one identity may hold
+sealed_pending_cap = 20          # messages one sealed mailbox holds at a time
+device_stale_days = 0            # remove devices idle this many days; 0 keeps them
+sealed_device_stale_days = 60    # same for sealed devices; keep it above twice
+                                 # message_ttl_max_days
+
+[push_gateway]
+# A self-hosted relay cannot wake App Store or Play Store installs itself. A
+# user can opt in, in the app, to be woken through the CarrierPony gateway. It
+# only ever gets a content-free nudge for devices that opted in. Point this at
+# your own gateway if you run one, or set it to "" to turn gateway wakes off.
+url = "https://push.carrierpony.com"

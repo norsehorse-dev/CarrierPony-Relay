@@ -8,3 +8,10 @@ config.php.bak
 verifier/cp-verify
 verifier/cp-testkey
 verifier/dist/
+
+# Go relay
+/carrierpony-relay
+config.toml
+*.db
+*.db-wal
+*.db-shm
