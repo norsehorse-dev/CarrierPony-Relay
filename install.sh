@@ -76,6 +76,52 @@ rm -rf "$APP_DIR/.git" "$APP_DIR/.env"
 echo "==> Preparing gnupg home"
 install -d -o "$WEB_USER" -g "$WEB_USER" -m 700 /var/lib/carrierpony/gnupg
 
+# The login verifier. gpg cannot read OpenPGP v6 keys, so accounts made by
+# CarrierPony 4.0 or later can only log in to a relay that has cp-verify. It is
+# built from verifier/ when a new enough Go is installed. Otherwise the binary
+# published with this release is downloaded and checked against the SHA-256 in
+# verifier/RELEASE, which is part of this repository. Without either, the relay
+# keeps verifying with gpg and serves v4 accounts only.
+VERIFIER_BIN=/usr/local/bin/cp-verify
+VERIFIER_OK=0
+install_verifier() {
+  local tmp arch tag sum
+  tmp="$(mktemp)"
+  if command -v go >/dev/null 2>&1; then
+    echo "==> Building the login verifier from source"
+    if (cd "$APP_SRC/verifier" && CGO_ENABLED=0 go build -trimpath -o "$tmp" ./cmd/cp-verify) 2>/dev/null; then
+      install -m 755 "$tmp" "$VERIFIER_BIN"
+      rm -f "$tmp"
+      return 0
+    fi
+    echo "    The build failed (verifier/go.mod names the Go version it needs)."
+  fi
+  case "$(uname -m)" in
+    x86_64|amd64)  arch=amd64 ;;
+    aarch64|arm64) arch=arm64 ;;
+    *)             arch="" ;;
+  esac
+  if [ -n "$arch" ] && [ -r "$APP_SRC/verifier/RELEASE" ] && command -v curl >/dev/null 2>&1; then
+    tag="$(awk '$1 == "tag" { print $2 }' "$APP_SRC/verifier/RELEASE")"
+    sum="$(awk -v a="$arch" '$1 == a { print $2 }' "$APP_SRC/verifier/RELEASE")"
+    if [ -n "$tag" ] && [ -n "$sum" ]; then
+      echo "==> Downloading the login verifier ($tag, linux-$arch)"
+      if curl -fsSL -o "$tmp" "https://github.com/norsehorse-dev/CarrierPony-Relay/releases/download/${tag}/cp-verify-linux-${arch}" \
+        && echo "${sum}  ${tmp}" | sha256sum -c - >/dev/null 2>&1; then
+        install -m 755 "$tmp" "$VERIFIER_BIN"
+        rm -f "$tmp"
+        return 0
+      fi
+      echo "    The download failed or did not match its checksum. Nothing was installed."
+    fi
+  fi
+  rm -f "$tmp"
+  return 1
+}
+if install_verifier; then
+  VERIFIER_OK=1
+fi
+
 if [ ! -f "$APP_DIR/config.php" ]; then
   read -rp "Database name [carrierpony]: " DB_NAME
   DB_NAME="${DB_NAME:-carrierpony}"
@@ -118,8 +164,18 @@ return [
     'max_envelope_bytes'   => 26214400,
 ];
 PHP
+  if [ "$VERIFIER_OK" -eq 1 ]; then
+    sed -i "s|^    'gnupg_home'  .*|&\n    'verifier_bin'         => '${VERIFIER_BIN}',|" "$APP_DIR/config.php"
+  fi
 else
   echo "==> Existing config.php found in $APP_DIR, keeping the database and config"
+  echo "==> Applying migrations"
+  # Each migration changes something only when it is missing, so an install
+  # that is already current is left as it is.
+  for m in "$APP_DIR"/migrations/*.sql; do
+    echo "    $(basename "$m")"
+    php "$APP_DIR/tools/apply_migration.php" "$APP_DIR" "$m" >/dev/null
+  done
 fi
 chown "$WEB_USER":"$WEB_USER" "$APP_DIR/config.php"
 chmod 640 "$APP_DIR/config.php"
@@ -173,5 +229,19 @@ echo "==> Installing the cleanup cron"
 echo "*/5 * * * * ${WEB_USER} php ${APP_DIR}/src/reaper.php >> /var/log/carrierpony-reaper.log 2>&1" > /etc/cron.d/carrierpony-reaper
 
 echo
+if [ "$VERIFIER_OK" -eq 1 ]; then
+  if grep -q "^ *'verifier_bin'" "$APP_DIR/config.php"; then
+    echo "The login verifier is installed and in use, so v4 and v6 accounts can log in."
+  else
+    echo "The login verifier is installed at ${VERIFIER_BIN} but config.php does not use it yet."
+    echo "To accept accounts made by CarrierPony 4.0 or later, add this line to ${APP_DIR}/config.php:"
+    echo "    'verifier_bin' => '${VERIFIER_BIN}',"
+    echo "INSTALL.md describes a shadow mode for checking it against your existing accounts first."
+  fi
+else
+  echo "The login verifier could not be installed, so this relay verifies with gpg and"
+  echo "accounts made by CarrierPony 4.0 or later cannot log in. Install Go (the version"
+  echo "named in verifier/go.mod, or later) and run this script again."
+fi
 echo "Done. Point CarrierPony at https://${DOMAIN} in Settings > Relay."
 echo "Verify: curl -sS -X POST https://${DOMAIN}/v1/challenge -H 'Content-Type: application/json' -d '{\"fpr\":\"0000000000000000000000000000000000000000\"}'"

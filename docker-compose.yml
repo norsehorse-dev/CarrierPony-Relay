@@ -12,6 +12,12 @@ services:
       - ./migrations/002_pairing.sql:/docker-entrypoint-initdb.d/02_pairing.sql:ro
       - ./migrations/003_push_platform.sql:/docker-entrypoint-initdb.d/03_push_platform.sql:ro
       - ./migrations/004_apns_env.sql:/docker-entrypoint-initdb.d/04_apns_env.sql:ro
+      - ./migrations/005_wake_token.sql:/docker-entrypoint-initdb.d/05_wake_token.sql:ro
+      - ./migrations/006_sealed_sender.sql:/docker-entrypoint-initdb.d/06_sealed_sender.sql:ro
+      - ./migrations/007_pairing_completion.sql:/docker-entrypoint-initdb.d/07_pairing_completion.sql:ro
+      - ./migrations/008_alert_flag.sql:/docker-entrypoint-initdb.d/08_alert_flag.sql:ro
+      - ./migrations/009_v6_fingerprints.sql:/docker-entrypoint-initdb.d/09_v6_fingerprints.sql:ro
+      - ./migrations/010_reports.sql:/docker-entrypoint-initdb.d/10_reports.sql:ro
     restart: unless-stopped
 
   app:

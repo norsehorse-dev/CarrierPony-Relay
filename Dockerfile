@@ -1,3 +1,10 @@
+# The login verifier is a small Go program. It is built here from verifier/ so
+# the image never depends on a binary from somewhere else.
+FROM golang:1.23 AS verifier
+WORKDIR /src
+COPY verifier/ .
+RUN CGO_ENABLED=0 go build -trimpath -o /cp-verify ./cmd/cp-verify
+
 FROM php:8.3-apache
 
 RUN apt-get update \
@@ -12,6 +19,7 @@ RUN sed -ri 's!DocumentRoot /var/www/html!DocumentRoot /var/www/html/public!' /e
     && sed -ri 's!AllowOverride None!AllowOverride All!' /etc/apache2/apache2.conf
 
 COPY . /var/www/html
+COPY --from=verifier /cp-verify /usr/local/bin/cp-verify
 COPY docker/entrypoint.sh /usr/local/bin/carrierpony-entrypoint
 RUN chmod +x /usr/local/bin/carrierpony-entrypoint
 
