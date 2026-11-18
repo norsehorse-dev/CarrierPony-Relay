@@ -16,7 +16,7 @@ reap_every_minutes = 5
 # "sqlite" keeps everything in one file and needs no database server. It suits
 # a relay for a household or a small group.
 driver = "sqlite"
-path = "/var/lib/carrierpony/relay.db"
+path = "/var/lib/carrierpony-relay/relay.db"
 
 # "mysql" uses a MySQL or MariaDB server, with the tables from schema.sql and
 # migrations/. host may be a name, name:port, or the path of a unix socket.

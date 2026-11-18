@@ -6,7 +6,7 @@
 #
 # It expects the binary at /usr/local/bin/carrierpony-relay, the config at
 # /etc/carrierpony/config.toml readable by the carrierpony user, and keeps the
-# SQLite database, when that is the database, in /var/lib/carrierpony.
+# SQLite database, when that is the database, in /var/lib/carrierpony-relay.
 
 [Unit]
 Description=CarrierPony relay
@@ -21,8 +21,11 @@ ExecStart=/usr/local/bin/carrierpony-relay serve -config /etc/carrierpony/config
 Restart=on-failure
 RestartSec=3
 
-# /var/lib/carrierpony, created and owned by the service user.
-StateDirectory=carrierpony
+# /var/lib/carrierpony-relay, created and owned by the service user. It is not
+# /var/lib/carrierpony on purpose: that is where the PHP relay keeps its gpg
+# home, owned by the web server's user, and systemd would take the whole
+# directory over. Leaving it alone keeps the way back to the PHP relay open.
+StateDirectory=carrierpony-relay
 StateDirectoryMode=0700
 
 # The relay needs the network, its config and its state directory, and nothing

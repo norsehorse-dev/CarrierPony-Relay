@@ -92,7 +92,7 @@ func Default() Config {
 			Host:   "127.0.0.1",
 			Name:   "carrierpony",
 			User:   "carrierpony",
-			Path:   "/var/lib/carrierpony/relay.db",
+			Path:   "/var/lib/carrierpony-relay/relay.db",
 		},
 		Limits: Limits{
 			ChallengeTTL:          300,

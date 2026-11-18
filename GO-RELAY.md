@@ -27,12 +27,12 @@ sudo install -m 755 carrierpony-relay /usr/local/bin/carrierpony-relay
 A new relay needs no database server. Create a user for it and a config:
 
 ```
-sudo useradd --system --home-dir /var/lib/carrierpony --shell /usr/sbin/nologin carrierpony
+sudo useradd --system --home-dir /var/lib/carrierpony-relay --shell /usr/sbin/nologin carrierpony
 sudo install -d -m 750 -o root -g carrierpony /etc/carrierpony
 sudo install -m 640 -o root -g carrierpony config.sample.toml /etc/carrierpony/config.toml
 ```
 
-The sample works as it is: SQLite at `/var/lib/carrierpony/relay.db`, listening
+The sample works as it is: SQLite at `/var/lib/carrierpony-relay/relay.db`, listening
 on `127.0.0.1:8080`, push through the CarrierPony gateway for users who opt in.
 Then install the service:
 
@@ -68,6 +68,10 @@ over the one in the image by adding a line under the relay's `volumes`:
 ```
       - ./my-config.toml:/etc/carrierpony/config.toml:ro
 ```
+
+The relay runs as user 10001 inside the container, not as root, so it must be
+able to read that file: `chmod 644 my-config.toml`, or if it holds a database
+password, `sudo chown 10001 my-config.toml` and `chmod 600 my-config.toml`.
 
 To back up, stop the relay and copy the volume, or run the SQLite backup
 described below against the file in the volume. To update, pull the repository
@@ -201,7 +205,7 @@ relay runs. To back it up while the relay is running, do not copy the file. Ask
 SQLite for a consistent copy:
 
 ```
-sudo -u carrierpony sqlite3 /var/lib/carrierpony/relay.db ".backup '/var/lib/carrierpony/relay-backup.db'"
+sudo -u carrierpony sqlite3 /var/lib/carrierpony-relay/relay.db ".backup '/var/lib/carrierpony-relay/relay-backup.db'"
 ```
 
 SQLite suits a relay for a household, a team or a few hundred people. A relay
