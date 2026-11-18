@@ -22,17 +22,20 @@
 #
 # The test starts a stand-in push gateway on GATEWAY_PORT and records the wakes
 # the relay sends it. MYSQL and REAPER are optional; the checks that need them
-# are reported as SKIP when they are not set.
+# are reported as SKIP when they are not set. For a relay on SQLite give
+# SQLITE=/path/to/relay.db in place of MYSQL.
 #
 # STOP_AFTER ends the run after one section, for a relay that does not serve
 # every endpoint yet. The sections, in order: routing, challenge, login,
 # register, send, inbox, ack, push, wake, report, pairing, sealed, reaper.
-import urllib.request, urllib.error, json, os, base64, subprocess, sys, re, time, hmac, hashlib, threading, shlex
+import urllib.request, urllib.error, json, os, base64, subprocess, sys, re, time, hmac, hashlib, threading, shlex, sqlite3
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
 BASE = os.environ.get("BASE", "http://127.0.0.1:8080").rstrip("/")
 TESTKEY = os.environ.get("TESTKEY", "cp-testkey")
 MYSQL = os.environ.get("MYSQL", "")
+SQLITE = os.environ.get("SQLITE", "")
+DB = MYSQL or SQLITE
 REAPER = os.environ.get("REAPER", "")
 GATEWAY_PORT = int(os.environ.get("GATEWAY_PORT", "8097"))
 STOP_AFTER = os.environ.get("STOP_AFTER", "")
@@ -82,7 +85,30 @@ def post(path, body):
 def is_err(res, status, error):
     return res[0] == status and res[1] == {"error": error}
 
+# The checks that read or change rows are written in MySQL's SQL. For a relay
+# on SQLite the few MySQL-only pieces are rewritten on the way in.
+SQLITE_FORMS = [
+    (re.compile(r"DATE_SUB\(UTC_TIMESTAMP\(\), INTERVAL (\d+) (SECOND|DAY)\)"),
+     lambda m: "datetime('now','-%s %ss')" % (m.group(1), m.group(2).lower())),
+    (re.compile(r"TIMESTAMPDIFF\(SECOND, (\w+), UTC_TIMESTAMP\(\)\)"),
+     lambda m: "(CAST(strftime('%%s','now') AS INTEGER) - CAST(strftime('%%s', %s) AS INTEGER))" % m.group(1)),
+    (re.compile(r"UTC_TIMESTAMP\(\)"), lambda m: "datetime('now')"),
+    (re.compile(r"CHAR_LENGTH\("), lambda m: "LENGTH("),
+    (re.compile(r"\bBINARY "), lambda m: ""),
+]
+
 def sql(q):
+    if SQLITE:
+        for pattern, form in SQLITE_FORMS:
+            q = pattern.sub(form, q)
+        db = sqlite3.connect(SQLITE, timeout=15)
+        try:
+            db.execute("PRAGMA foreign_keys = ON")
+            rows = db.execute(q).fetchall()
+            db.commit()
+        finally:
+            db.close()
+        return [["NULL" if v is None else str(v) for v in row] for row in rows]
     out = subprocess.run(shlex.split(MYSQL) + ["-e", q], capture_output=True, text=True, check=True).stdout
     return [line.split("\t") for line in out.splitlines()]
 
@@ -230,13 +256,13 @@ check("register-device without a label answers ok",
 check("the second identity registers", bob.register() == (200, {"ok": True}))
 bob_dev2 = os.urandom(16).hex()
 check("a second device registers under the same identity", bob.register(device_id=bob_dev2) == (200, {"ok": True}))
-if MYSQL:
+if DB:
     a.register(label="L" * 80)
     check("a label is cut to 64 characters", one("SELECT CHAR_LENGTH(label) FROM devices WHERE device_id='%s'" % a.device_id) == "64")
     check("registering twice keeps one device row", one("SELECT COUNT(*) FROM devices WHERE fpr='%s'" % a.fpr) == "1")
     check("the fingerprint is stored in uppercase", one("SELECT BINARY fpr = BINARY UPPER(fpr) FROM identities WHERE fpr='%s'" % a.fpr) == "1")
 else:
-    skip("stored label, device and fingerprint (needs MYSQL)")
+    skip("stored label, device and fingerprint (needs MYSQL or SQLITE)")
 
 check("login from an identity that never registered is 401 bad_signature",
       is_err(stranger.call("/v1/inbox", {"device_id": stranger.device_id}), 401, "bad_signature"))
@@ -333,7 +359,7 @@ check("alert follows silent", [m["alert"] for m in got] == [1, 0, 1], [m["alert"
 s, b = bob.call("/v1/inbox", {"device_id": bob_dev2})
 check("the second device has its own copy of every message",
       [m["message_id"] for m in b.get("messages", [])] == [m_big], [m["message_id"] for m in b.get("messages", [])])
-if MYSQL:
+if DB:
     check("a message stays stored until every device has acked it", one("SELECT COUNT(*) FROM messages WHERE message_id='%s'" % m_big) == "1")
     bob.call("/v1/ack", {"device_id": bob_dev2, "message_ids": [m_big]})
     check("and is deleted once they all have", one("SELECT COUNT(*) FROM messages WHERE message_id='%s'" % m_big) == "0")
@@ -350,7 +376,7 @@ if MYSQL:
     age = int(one("SELECT TIMESTAMPDIFF(SECOND, last_seen, UTC_TIMESTAMP()) FROM devices WHERE device_id='%s'" % bob.device_id))
     check("inbox updates the device's last_seen", 0 <= age < 30, age)
 else:
-    skip("message deletion, expiry and nonce expiry (needs MYSQL)")
+    skip("message deletion, expiry and nonce expiry (needs MYSQL or SQLITE)")
 for dev in (bob.device_id, bob_dev2):
     ids = [m["message_id"] for m in bob.call("/v1/inbox", {"device_id": dev})[1].get("messages", [])]
     bob.call("/v1/ack", {"device_id": dev, "message_ids": ids})
@@ -378,18 +404,18 @@ check("register-push with an unknown platform is 400 bad_platform",
 check("register-push for a device that is not registered is 403 unknown_device",
       is_err(a.call("/v1/register-push", {"device_id": os.urandom(16).hex(), "push_token": "t"}), 403, "unknown_device"))
 check("register-push answers exactly ok", a.call("/v1/register-push", {"device_id": a.device_id, "push_token": "T" * 300}) == (200, {"ok": True}))
-if MYSQL:
+if DB:
     row = sql("SELECT CHAR_LENGTH(push_token), platform FROM devices WHERE device_id='%s'" % a.device_id)[0]
     check("the token is cut to 255 characters and the platform defaults to apns", row == ["255", "apns"], row)
 check("register-push with the same values again answers ok",
       a.call("/v1/register-push", {"device_id": a.device_id, "push_token": "T" * 300}) == (200, {"ok": True}))
 check("register-push accepts FCM in any case",
       a.call("/v1/register-push", {"device_id": a.device_id, "push_token": "tok", "platform": "FCM"}) == (200, {"ok": True}))
-if MYSQL:
+if DB:
     check("the platform is stored in lowercase", one("SELECT platform FROM devices WHERE device_id='%s'" % a.device_id) == "fcm")
     sql("UPDATE devices SET push_token = NULL WHERE device_id='%s'" % a.device_id)
 else:
-    skip("stored push token and platform (needs MYSQL)")
+    skip("stored push token and platform (needs MYSQL or SQLITE)")
 
 done("push")
 
@@ -440,7 +466,7 @@ unseen = os.urandom(32).hex().upper()
 res = a.call("/v1/report", {"reported_fpr": unseen, "category": "other", "description": "d" * 5000,
                             "content": "c" * 21000, "attachment_meta": "m" * 5000})
 check("report about a fingerprint the relay has never seen answers ok", res == (200, {"ok": True}), res)
-if MYSQL:
+if DB:
     row = sql("SELECT reporter_fpr, category, CHAR_LENGTH(description), CHAR_LENGTH(content), CHAR_LENGTH(attachment_meta), status "
               "FROM reports WHERE reported_fpr='%s'" % unseen)[0]
     check("a report is stored trimmed to 4000, 20000 and 4000 characters, status open",
@@ -448,7 +474,7 @@ if MYSQL:
     check("the reported fingerprint is stored in uppercase and the category in lowercase",
           one("SELECT COUNT(*) FROM reports WHERE BINARY reported_fpr='%s' AND BINARY category='spam' AND reporter_fpr='%s'" % (bob.fpr, a.fpr)) == "2")
 else:
-    skip("stored report (needs MYSQL)")
+    skip("stored report (needs MYSQL or SQLITE)")
 
 done("report")
 
@@ -487,7 +513,7 @@ check("three open offers are allowed", all(t and HEX32.match(t) for t in tokens)
 check("a fourth open offer is 429 too_many_offers", is_err(a.call("/v1/pair/offer", {"pubkey": a.pubkey}), 429, "too_many_offers"))
 check("an identity may accept its own offer", a.call("/v1/pair/accept", {"token": tokens[0], "pubkey": a.pubkey})[0] == 200)
 check("an accepted offer no longer counts against the limit", a.call("/v1/pair/offer", {"pubkey": a.pubkey})[0] == 200)
-if MYSQL:
+if DB:
     sql("UPDATE pairing_offers SET expires_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 SECOND) WHERE token='%s'" % tokens[1])
     check("pair status of an open offer past its time answers state expired", a.call("/v1/pair/status", {"token": tokens[1]}) == (200, {"state": "expired"}))
     check("pair accept of an offer past its time is 410 offer_closed",
@@ -496,7 +522,7 @@ if MYSQL:
     sql("UPDATE pairing_offers SET expires_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 SECOND) WHERE token='%s'" % token)
     check("an accepted offer past its time is still collectable", a.call("/v1/pair/status", {"token": token})[1].get("state") == "accepted")
 else:
-    skip("expired pairing offers (needs MYSQL)")
+    skip("expired pairing offers (needs MYSQL or SQLITE)")
 
 done("pairing")
 
@@ -640,7 +666,7 @@ answers = [post(P + "send", {"mailbox": flood, "envelope": env}) for _ in range(
 check("the first twenty deposits to one mailbox answer ok", all(r == (200, {"ok": True}) for r in answers[:20]), answers[:20])
 check("the next ones answer ok and throttled", all(r == (200, {"ok": True, "throttled": True}) for r in answers[20:]), answers[20:])
 
-if MYSQL:
+if DB:
     sql("UPDATE mailboxes SET expires_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 SECOND) WHERE mailbox='%s'" % box[1])
     post(P + "send", {"mailbox": box[1], "envelope": env})
     check("a deposit to an expired mailbox answers ok and stores nothing", one("SELECT COUNT(*) FROM sealed_messages WHERE mailbox='%s'" % box[1]) == "0")
@@ -651,13 +677,13 @@ if MYSQL:
     post(P + "register-device", x.signed("register", {"device_key": x.key}))
     check("registering again without a wake token clears it", one("SELECT wake_token IS NULL FROM sealed_devices WHERE device_id='%s'" % x.dev) == "1")
 else:
-    skip("expired mailboxes and stored wake token (needs MYSQL)")
+    skip("expired mailboxes and stored wake token (needs MYSQL or SQLITE)")
 
 done("sealed")
 
 # ---- reaper ----------------------------------------------------------------
 
-if MYSQL and REAPER:
+if DB and REAPER:
     def count(table, where="1"):
         return int(one("SELECT COUNT(*) FROM %s WHERE %s" % (table, where)))
 
@@ -665,7 +691,7 @@ if MYSQL and REAPER:
     gone = a.call("/v1/send", {"to_fpr": bob.fpr, "envelope": env})[1]["message_id"]
     acked = a.call("/v1/send", {"to_fpr": a.fpr, "envelope": env})[1]["message_id"]
     sql("UPDATE messages SET expires_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 SECOND) WHERE message_id='%s'" % gone)
-    sql("UPDATE deliveries d JOIN messages m ON m.id = d.message_pk SET d.acked_at = UTC_TIMESTAMP() WHERE m.message_id='%s'" % acked)
+    sql("UPDATE deliveries SET acked_at = UTC_TIMESTAMP() WHERE message_pk IN (SELECT id FROM messages WHERE message_id='%s')" % acked)
     f_old, f_new = os.urandom(20).hex().upper(), os.urandom(20).hex().upper()
     post("/v1/challenge", {"fpr": f_old}); post("/v1/challenge", {"fpr": f_new})
     sql("UPDATE challenges SET expires_at = DATE_SUB(UTC_TIMESTAMP(), INTERVAL 1 SECOND) WHERE fpr='%s'" % f_old)
@@ -710,6 +736,6 @@ if MYSQL and REAPER:
     check("reaper: an offer accepted 31 days ago is deleted", count("pairing_offers", "token='%s'" % tokens[0]) == 0)
     check("reaper: a recently accepted offer is kept even past its time", count("pairing_offers", "token='%s'" % token) == 1)
 else:
-    skip("reaper (needs MYSQL and REAPER)")
+    skip("reaper (needs MYSQL or SQLITE, and REAPER)")
 
 finish()

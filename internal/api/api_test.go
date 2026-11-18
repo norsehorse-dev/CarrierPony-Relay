@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -63,7 +64,7 @@ func TestRouting(t *testing.T) {
 		{"POST", "/v1/%63hallenge", 404},
 		{"POST", "/v1/nope", 404},
 		{"POST", "/", 404},
-		{"POST", "/v1/send", 501},
+		{"POST", "/v1/sealed/send", 501},
 	} {
 		status, ctype, body := do(t, ts, c.method, c.path, good)
 		if status != c.status {
@@ -117,10 +118,10 @@ func TestBodyLimits(t *testing.T) {
 	if limit != 40000+65536 {
 		t.Fatalf("envelope body limit = %d", limit)
 	}
-	if status, _, body := do(t, ts, "POST", "/v1/send", pad(limit)); status != 413 || body != `{"error":"too_large"}` {
+	if status, _, body := do(t, ts, "POST", "/v1/sealed/send", pad(limit)); status != 413 || body != `{"error":"too_large"}` {
 		t.Errorf("envelope endpoint over its limit: %d %s", status, body)
 	}
-	if status, _, _ := do(t, ts, "POST", "/v1/send", pad(limit-100)); status != 501 {
+	if status, _, _ := do(t, ts, "POST", "/v1/sealed/send", pad(limit-100)); status != 501 {
 		t.Errorf("envelope endpoint under its limit: %d", status)
 	}
 	// Without a Content-Length the limit still holds.
@@ -176,7 +177,7 @@ func TestAnswersKeepTheirFieldOrderAndDoNotEscapeKeys(t *testing.T) {
 
 func TestAPanicBecomesA500(t *testing.T) {
 	s, ts := newServer(t)
-	s.routes["/v1/boom"] = route{handle: func(*Server, *http.Request, input) result { panic("boom") }}
+	s.routes["/v1/boom"] = route{handle: func(*Server, context.Context, input) result { panic("boom") }}
 	status, _, body := do(t, ts, "POST", "/v1/boom", `{}`)
 	if status != 500 || body != `{"error":"server_error"}` {
 		t.Fatalf("%d %s", status, body)

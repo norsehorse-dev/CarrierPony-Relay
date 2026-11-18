@@ -3,6 +3,8 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"log"
 	"net/http"
 )
 
@@ -51,18 +53,20 @@ func marshal(v any) ([]byte, error) {
 	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }
 
-// result is what a handler answers: a status and a JSON body.
+// result is what a handler answers: a status and a JSON body. An answer too
+// large to build in memory sets stream instead of body and writes itself.
 type result struct {
 	status int
 	body   object
+	stream func(w io.Writer) error
 }
 
 func ok(fields ...field) result {
-	return result{http.StatusOK, object(fields)}
+	return result{status: http.StatusOK, body: object(fields)}
 }
 
 func fail(status int, code string) result {
-	return result{status, object{{"error", code}}}
+	return result{status: status, body: object{{"error", code}}}
 }
 
 func missing(name string) result {
@@ -70,6 +74,16 @@ func missing(name string) result {
 }
 
 func write(w http.ResponseWriter, res result) {
+	if res.stream != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(res.status)
+		// Once the status is out an error can only cut the answer short. The
+		// client sees JSON that does not parse and polls again.
+		if err := res.stream(w); err != nil {
+			log.Printf("carrierpony: answer cut short: %v", err)
+		}
+		return
+	}
 	body, err := res.body.MarshalJSON()
 	if err != nil {
 		res.status, body = http.StatusInternalServerError, []byte(`{"error":"server_error"}`)

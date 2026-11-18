@@ -3,6 +3,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -24,7 +25,7 @@ type Server struct {
 	routes map[string]route
 }
 
-type handler func(s *Server, r *http.Request, in input) result
+type handler func(s *Server, ctx context.Context, in input) result
 
 type route struct {
 	handle handler
@@ -42,16 +43,16 @@ func New(cfg config.Config, st *store.Store) *Server {
 	s := &Server{cfg: cfg, store: st, now: time.Now}
 	s.routes = map[string]route{
 		"/v1/challenge":                 {handle: (*Server).challenge},
-		"/v1/register-device":           {handle: notPorted},
-		"/v1/send":                      {handle: notPorted, large: true},
-		"/v1/inbox":                     {handle: notPorted},
-		"/v1/ack":                       {handle: notPorted},
-		"/v1/register-push":             {handle: notPorted},
-		"/v1/register-wake":             {handle: notPorted},
-		"/v1/report":                    {handle: notPorted},
-		"/v1/pair/offer":                {handle: notPorted},
-		"/v1/pair/accept":               {handle: notPorted},
-		"/v1/pair/status":               {handle: notPorted},
+		"/v1/register-device":           {handle: (*Server).registerDevice},
+		"/v1/send":                      {handle: authed((*Server).send), large: true},
+		"/v1/inbox":                     {handle: authed((*Server).inbox)},
+		"/v1/ack":                       {handle: authed((*Server).ack)},
+		"/v1/register-push":             {handle: authed(notPortedAuthed)},
+		"/v1/register-wake":             {handle: authed(notPortedAuthed)},
+		"/v1/report":                    {handle: authed(notPortedAuthed)},
+		"/v1/pair/offer":                {handle: authed(notPortedAuthed)},
+		"/v1/pair/accept":               {handle: authed(notPortedAuthed)},
+		"/v1/pair/status":               {handle: authed(notPortedAuthed)},
 		"/v1/sealed/register-device":    {handle: notPorted},
 		"/v1/sealed/register-mailboxes": {handle: notPorted},
 		"/v1/sealed/send":               {handle: notPorted, large: true},
@@ -63,8 +64,26 @@ func New(cfg config.Config, st *store.Store) *Server {
 
 // notPorted answers for an endpoint the Go relay does not serve yet. It goes
 // away when the last endpoint is ported.
-func notPorted(*Server, *http.Request, input) result {
+func notPorted(*Server, context.Context, input) result {
 	return fail(http.StatusNotImplemented, "not_implemented")
+}
+
+// notPortedAuthed is notPorted for an endpoint that needs a login. The login is
+// still checked first, as it will be once the endpoint is served.
+func notPortedAuthed(*Server, context.Context, string, input) result {
+	return fail(http.StatusNotImplemented, "not_implemented")
+}
+
+// requestContext is the context a request's database work runs under. It is
+// cut loose from the connection, so a client that hangs up cannot leave a
+// message half stored, and bounded, so nothing waits on the database forever.
+func (s *Server) requestContext(r *http.Request) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(r.Context()), 2*time.Minute)
+}
+
+// stampUnix formats a unix time as the store keeps it.
+func stampUnix(seconds int64) string {
+	return store.Stamp(time.Unix(seconds, 0))
 }
 
 // maxEnvelopeBody is the largest body an envelope endpoint reads: the biggest
@@ -97,19 +116,23 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(w, fail(http.StatusRequestEntityTooLarge, "too_large"))
 		return
 	}
-	write(w, s.run(rt.handle, r, in))
+	// The context outlives the handler: a streamed answer still reads from the
+	// database while it is being written.
+	ctx, cancel := s.requestContext(r)
+	defer cancel()
+	write(w, s.run(rt.handle, ctx, path, in))
 }
 
 // run calls a handler and turns a panic into a 500, so one bad request cannot
 // take the relay down.
-func (s *Server) run(h handler, r *http.Request, in input) (res result) {
+func (s *Server) run(h handler, ctx context.Context, path string, in input) (res result) {
 	defer func() {
 		if p := recover(); p != nil {
-			log.Printf("carrierpony: %s: panic: %v", r.URL.Path, p)
+			log.Printf("carrierpony: %s: panic: %v", path, p)
 			res = serverError()
 		}
 	}()
-	return h(s, r, in)
+	return h(s, ctx, in)
 }
 
 // serverError is the answer when the relay itself failed. The cause is logged
