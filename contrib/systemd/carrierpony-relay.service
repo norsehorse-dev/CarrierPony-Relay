@@ -1,0 +1,55 @@
+# systemd unit for the CarrierPony relay (the Go one).
+#
+#   sudo install -m 644 contrib/systemd/carrierpony-relay.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now carrierpony-relay
+#
+# It expects the binary at /usr/local/bin/carrierpony-relay, the config at
+# /etc/carrierpony/config.toml readable by the carrierpony user, and keeps the
+# SQLite database, when that is the database, in /var/lib/carrierpony.
+
+[Unit]
+Description=CarrierPony relay
+Documentation=https://github.com/norsehorse-dev/CarrierPony-Relay
+After=network-online.target mysql.service mariadb.service
+Wants=network-online.target
+
+[Service]
+User=carrierpony
+Group=carrierpony
+ExecStart=/usr/local/bin/carrierpony-relay serve -config /etc/carrierpony/config.toml
+Restart=on-failure
+RestartSec=3
+
+# /var/lib/carrierpony, created and owned by the service user.
+StateDirectory=carrierpony
+StateDirectoryMode=0700
+
+# The relay needs the network, its config and its state directory, and nothing
+# else on the machine.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+SystemCallArchitectures=native
+UMask=0077
+# MemoryDenyWriteExecute is left out on purpose. The SQLite driver runs SQLite
+# as WebAssembly and compiles it to machine code when the relay starts, which
+# that setting forbids.
+
+[Install]
+WantedBy=multi-user.target

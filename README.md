@@ -4,6 +4,11 @@ Store-and-forward relay for CarrierPony. It carries end-to-end encrypted PGP env
 
 Self-hostable. Apache-2.0.
 
+The relay is being rewritten in Go: one static binary, the same endpoints, and
+SQLite as an option in place of a database server. It is a preview until the
+2.0.0 release. [GO-RELAY.md](GO-RELAY.md) covers building it, starting a new
+relay with it, and moving an existing PHP relay over.
+
 ## Self-hosting
 
 Three ways to stand up your own relay.
